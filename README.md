@@ -1,6 +1,6 @@
-# bebras-md-vscode
+# bebras-vscode
 
-An extention to integrate tools offered my [**`bebras-md`**](https://github.com/jppellet/bebras-md) in VS Code.
+An extention to integrate tools offered my [**`bebras`**](https://github.com/jppellet/bebras) in VS Code.
 
 ## Features
 
@@ -8,7 +8,7 @@ TBD
 
 ## Requirements
 
-`jq`, `yq`?
+None yet.
 
 ## Extension Settings
 
