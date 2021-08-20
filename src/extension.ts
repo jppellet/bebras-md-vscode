@@ -18,7 +18,7 @@ async function getAuthorCompletions(folderPath: string): Promise<string[]> {
 	completions = []
 	if (fs.existsSync(completionFile)) {
 		const lines = await fs.promises.readFile(completionFile, "utf8")
-		completions = lines.split('\n').filter(l => l.length > 0)
+		completions = lines.split(/\r?\n/).filter(l => l.length > 0)
 	}
 	AuthorCompletionCache.set(folderPath, completions)
 	return completions
@@ -323,9 +323,12 @@ async function addMissingSupportFileEntries(): Promise<void> {
 		}
 	}
 
+	const newline: string = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n'
+
 	const LinePrefix = "  - "
 	const LineSuffix = " by ..."
-	const lines = names.map(n => LinePrefix + n + LineSuffix).join("\n")
+	const lines = names.map(n => LinePrefix + n + LineSuffix).join(newline)
+
 	editor.edit(editBuilder => {
 		let sel = editor.selection
 		let line
