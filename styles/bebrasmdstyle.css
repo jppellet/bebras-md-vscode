@@ -62,6 +62,10 @@ li {
     margin-top: 5px;
 }
 
+img {
+    max-width: 100%;
+}
+
 /* Center all paragraph-images by default */
 img.only-img-in-p {
     display: block;

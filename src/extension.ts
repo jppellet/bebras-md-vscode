@@ -4,6 +4,8 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as bebras from 'bebras'
 import * as minimatch from "minimatch"
+import { mkStringCommaAnd } from 'bebras/out/util'
+import { QuickFix } from 'bebras/out/check'
 
 // maps containing folder name to list of author completions
 const AuthorCompletionCache = new Map<string, string[]>()
@@ -70,8 +72,10 @@ function getFilenameAndVersionForLinting(doc: vscode.TextDocument): undefined | 
 	return { filePath, version }
 }
 
+const DiagCode = "bebras"
+
 // Lints a Markdown document
-function lint(doc: vscode.TextDocument) {
+async function lint(doc: vscode.TextDocument) {
 
 	const diags = [] as vscode.Diagnostic[]
 	try {
@@ -84,7 +88,7 @@ function lint(doc: vscode.TextDocument) {
 		const { filePath, version } = basicInfo
 		const text = doc.getText()
 
-		const outputs = bebras.check.check(text, filePath, version)
+		const outputs = await bebras.check.check(text, filePath, version)
 
 		for (const o of outputs) {
 			let sev: vscode.DiagnosticSeverity
@@ -99,6 +103,10 @@ function lint(doc: vscode.TextDocument) {
 			};
 
 			const diag = new vscode.Diagnostic(new vscode.Range(doc.positionAt(o.start), doc.positionAt(o.end)), o.msg, sev)
+			diag.code = DiagCode
+			if (o.quickFix) {
+				(diag as any).quickFix = o.quickFix
+			}
 			diags.push(diag)
 		}
 
@@ -188,28 +196,22 @@ export function activate(context: vscode.ExtensionContext) {
 	const authorCompletion = {
 		async provideCompletionItems(doc: vscode.TextDocument, pos: vscode.Position, cancel: vscode.CancellationToken, ctx: vscode.CompletionContext) {
 			if (!isTask(doc)) {
-				console.log("not a task")
 				return []
 			}
 
 			const LinePrefix = "  - "
 			const line = doc.lineAt(pos)
-			console.log(`Line: '${line.text}'`)
 			const match = /^\s*\-?\s*(?<filter>.*?)(?:\s+\(.*)?$/.exec(line.text)
 			if (!match) {
-				console.log("no match")
 				return []
 			}
 
 			const filter = match.groups?.filter?.toLowerCase()
-			console.log(`filter: '${filter}'`)
 
 			const authors = await getAuthorCompletions(path.dirname(path.dirname(doc.uri.fsPath)))
 			const completionAuthors = !filter
 				? authors
 				: authors.filter(auth => auth.toLowerCase().startsWith(filter))
-
-			console.log(completionAuthors)
 
 			const completions = completionAuthors.map(authorString => {
 				const item = new vscode.CompletionItem(authorString)
@@ -220,24 +222,26 @@ export function activate(context: vscode.ExtensionContext) {
 				return item
 			})
 
-			console.log(`returning ${completions.length} completions`)
-
 			return completions
 		},
 	}
+
+	const taskDocSelector = { scheme: 'file', language: 'markdown', pattern: '**/*' + bebras.patterns.taskFileExtension }
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('bebrasmd.exportHtml', loggingErrors(makeExportHandler("html"))),
 		vscode.commands.registerCommand('bebrasmd.exportPdf', loggingErrors(makeExportHandler("pdf"))),
 		vscode.commands.registerCommand('bebrasmd.exportTex', loggingErrors(makeExportHandler("tex"))),
-		vscode.commands.registerCommand('bebrasmd.addMissingSupportFileEntries', loggingErrors(addMissingSupportFileEntries)),
-		vscode.languages.registerCompletionItemProvider({ scheme: 'file', language: 'markdown', pattern: '**/*' + bebras.patterns.taskFileExtension }, authorCompletion),
+		vscode.languages.registerCompletionItemProvider(taskDocSelector, authorCompletion),
+		vscode.languages.registerCodeActionsProvider(taskDocSelector, new BebrasQuickFixProvider(), {
+			providedCodeActionKinds: BebrasQuickFixProvider.providedCodeActionKinds,
+		}),
+		vscode.languages.registerHoverProvider(taskDocSelector, { provideHover }),
 	)
 
 	return {
 		extendMarkdownIt(md: any) {
 			try {
-				console.log("ACTIVATING BEBRAS MD PLUGIN")
 				md = md.use(bebras.markdownitPlugin.plugin)
 			} catch (e) {
 				console.error(e)
@@ -251,6 +255,98 @@ export function activate(context: vscode.ExtensionContext) {
 // this method is called when your extension is deactivated
 export function deactivate() { }
 
+export class BebrasQuickFixProvider implements vscode.CodeActionProvider {
+
+	public static readonly providedCodeActionKinds = [
+		vscode.CodeActionKind.QuickFix,
+	]
+
+	provideCodeActions(doc: vscode.TextDocument, range: vscode.Range | vscode.Selection, context: vscode.CodeActionContext, token: vscode.CancellationToken): vscode.CodeAction[] {
+		const diags = context.diagnostics
+		if (diags.length === 0) {
+			return []
+		}
+		return diags
+			.filter(diag => diag.code === DiagCode)
+			.flatMap(diag => this.createCommandCodeActions(doc, diag, range))
+	}
+
+	private createCommandCodeActions(doc: vscode.TextDocument, diag: vscode.Diagnostic, range: vscode.Range | vscode.Selection): vscode.CodeAction[] {
+		console.log("diag", diag)
+		const quickFix: undefined | QuickFix = (diag as any).quickFix
+		if (!quickFix) {
+			return []
+		}
+
+		if (quickFix._type === "replacement") {
+			return quickFix.values.map(replacement => {
+				const action = new vscode.CodeAction(`Replace with '${replacement}'`, vscode.CodeActionKind.QuickFix)
+				action.diagnostics = [diag]
+				action.edit = new vscode.WorkspaceEdit()
+				action.edit.replace(doc.uri, diag.range, replacement)
+				return action
+			})
+		}
+
+		if (quickFix._type === "additions") {
+			const action = new vscode.CodeAction(`Insert missing values`, vscode.CodeActionKind.QuickFix)
+			action.diagnostics = [diag]
+			action.edit = new vscode.WorkspaceEdit()
+			let lineNum = range.start.line + 1
+			let line: vscode.TextLine
+			while ((line = doc.lineAt(lineNum)).text.startsWith(" ")) {
+				lineNum++
+			}
+			action.edit.insert(doc.uri, line.rangeIncludingLineBreak.start, quickFix.newValues.map(v => "  - " + v + "\n").join(""))
+			return [action]
+		}
+
+		return []
+	}
+}
+
+function provideHover(doc: vscode.TextDocument, pos: vscode.Position, token: vscode.CancellationToken): undefined | vscode.Hover {
+	const line = doc.lineAt(pos.line).text.trim()
+	let match
+	if (match = /^\s*(?<key>[a-z0-9\-_]+?):.*$/.exec(line)) {
+		const key: string = match.groups!.key
+		const desc = makeDesc(key)
+		if (desc) {
+			return new vscode.Hover(new vscode.MarkdownString(desc))
+		}
+	}
+	return undefined
+
+	function makeDesc(key: string): string | undefined {
+		function withStdPrefix(end: string, keyOverride?: string) {
+			return `In the task metadata, the **${keyOverride ?? key}** field ` + end
+		}
+		let ageCats
+		if (key === "id") {
+			return withStdPrefix(`is a string uniquely identifying the task, with the format \`YYYY-CC-NN\`. It should match the name of the task file.\n\nIt should follow this regex pattern:\n\n\`${bebras.patterns.id}\``)
+		} else if (key === "name") {
+			return withStdPrefix(`gives the original name of the task, non-localized. It is usually in English and should not really change over multiple revisions of the task. The localized title of the file should go into the **title** field.`)
+		} else if (key === "title") {
+			return withStdPrefix(`is the localized, changeable title of the task as it will be exported for end-user output files.`)
+		} else if (key === "answer_type") {
+			return withStdPrefix(`says how this task will be answered by participants. It affects the expected contents of the *${bebras.patterns.markdownSectionNames[1]}* section.\n\nIt should be one of these values: ${mkStringCommaAnd(bebras.patterns.answerTypes.map(a => "`" + a + "`"), "or")}.`)
+		} else if (key === "categories") {
+			return withStdPrefix(`lists one or more categories under which this task should be classified. They are listed on an indented line with a hyphen.\n\nPossible categories are: ${mkStringCommaAnd(bebras.patterns.categories.map(a => "`" + a + "`"))}}.`)
+		} else if (key === "contributors") {
+			return withStdPrefix(`lists, each on an indented line with hyphen, the list of contributors for this task.\n\nIn order to be parsed correctly, these lines should have the format:\n\n\`  - Name, email, country (role[s])\`\n\nWrite \`[no email]\` if the email address is not known.\n\nSeparate multiple roles with commas. Recoginzed roles are ${mkStringCommaAnd(bebras.patterns.validRoles.map(a => "`" + a + "`"))}. The role \`${bebras.patterns.roleTranslation}\` should specify *from* and *into* which language translation was gone, e.g.: \`${bebras.patterns.roleTranslation} from English into German\`.`)
+		} else if (key === "support_files") {
+			return withStdPrefix(`lists the auxiliary files (e.g., graphics) linked to this task. They can have either of two formats. When the author is from the Bebras community, they should be listed in the **contributors** section and referenced by their full name:\n\n\`  - <file_pattern> by <author> (<license>)\`\n\nIf the license is omitted, it is assumed to be \`${bebras.patterns.DefaultLicenseShortTitle}\`. More authors, separated by \`and\` without commas, can be listed.\n\nIf the file comes from an external source, use:\n\n\`  - <file_pattern> from <source> (<license>)\`\n\nHere, the license cannot be omitted.\n\nIn both cases, the file pattern can omit the containing folders, if any, and can be either a normal file name or a [glob pattern](https://en.wikipedia.org/wiki/Glob_(programming)) like \`*.svg\` to reference all SVG files.\n\nWhen checking for missing or extra lines, the glob patterns are tested in order with all auxiliary task files.`)
+		} else {
+			const ageCats = Object.values(bebras.patterns.ageCategories)
+			if (key === "ages" || ageCats.includes(key as any)) {
+				return withStdPrefix(`gives an indication of which age categories this task is meant for and of the expected difficulty it represents.\n\nThe age groups are ${mkStringCommaAnd(ageCats?.map(a => "`" + a! + "`")!)}; possible difficulties are \`easy\`, \`medium\`, or \`hard\`, or \`--\` when not applicable to this age category.\n\nIn the rare event that a task is assigned to several non-contiguous age categories, the skipped categories should be annotated with \`----\` to indicate the gap is voluntary.`, "ages")
+			}
+		}
+		return undefined
+	}
+}
+
+
 function isTask(doc: vscode.TextDocument): boolean {
 	const uri = doc.uri
 	if (uri.scheme !== "file") {
@@ -263,84 +359,6 @@ function isTask(doc: vscode.TextDocument): boolean {
 	}
 
 	return true
-}
-
-async function addMissingSupportFileEntries(): Promise<void> {
-	const editor = vscode.window.activeTextEditor
-	if (!editor) {
-		return
-	}
-
-	const doc = editor.document
-	if (!isTask(doc)) {
-		return
-	}
-
-	const taskFile = doc.uri.fsPath
-	const taskFolder = path.dirname(taskFile)
-
-	const definedFilePatterns = findDefinedSupportFiles(doc)
-
-	function findDefinedSupportFiles(doc: vscode.TextDocument): string[] {
-		const text = doc.getText()
-		const loadResult = bebras.check.loadRawMetadata(text)
-		if (bebras.util.isUndefined(loadResult)) {
-			return []
-		}
-		const metadata: Partial<bebras.util.TaskMetadata> = loadResult[3]
-		const supportFiles = metadata.support_files
-		if (bebras.util.isUndefined(supportFiles) || !bebras.util.isArray(supportFiles)) {
-			return []
-		}
-		const found: string[] = []
-		for (const supportFile of supportFiles) {
-			let match
-			if (match = bebras.patterns.supportFile.exec(supportFile)) {
-				found.push(match.groups.file_pattern)
-			}
-		}
-		return found
-	}
-
-	const names: string[] = []
-
-	for (const folderName of ["graphics", "interactive"]) {
-		const folder = path.join(taskFolder, folderName)
-		if (fs.existsSync(folder)) {
-			const localNames = await fs.promises.readdir(folder)
-			for (const localName of localNames) {
-				let matchedBy: string | undefined = undefined
-				for (const pattern of definedFilePatterns) {
-					if (minimatch(localName, pattern)) {
-						matchedBy = pattern
-						break
-					}
-				}
-				if (bebras.util.isUndefined(matchedBy)) {
-					names.push(localName)
-				}
-			}
-		}
-	}
-
-	const newline: string = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n'
-
-	const LinePrefix = "  - "
-	const LineSuffix = " by ..."
-	const lines = names.map(n => LinePrefix + n + LineSuffix).join(newline)
-
-	editor.edit(editBuilder => {
-		let sel = editor.selection
-		let line
-		let target
-		if (sel.isEmpty && (line = doc.lineAt(sel.active)).isEmptyOrWhitespace) {
-			target = line.range
-		} else {
-			target = sel
-		}
-
-		editBuilder.replace(target, lines)
-	})
 }
 
 function makeExportHandler(outputFormat: bebras.util.OutputFormat) {
