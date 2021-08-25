@@ -232,6 +232,7 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('bebrasmd.exportHtml', loggingErrors(makeExportHandler("html"))),
 		vscode.commands.registerCommand('bebrasmd.exportPdf', loggingErrors(makeExportHandler("pdf"))),
 		vscode.commands.registerCommand('bebrasmd.exportTex', loggingErrors(makeExportHandler("tex"))),
+		vscode.commands.registerCommand('bebrasmd.formatTable', loggingErrors(formatTable)),
 		vscode.languages.registerCompletionItemProvider(taskDocSelector, authorCompletion),
 		vscode.languages.registerCodeActionsProvider(taskDocSelector, new BebrasQuickFixProvider(), {
 			providedCodeActionKinds: BebrasQuickFixProvider.providedCodeActionKinds,
@@ -397,6 +398,31 @@ function makeExportHandler(outputFormat: bebras.util.OutputFormat) {
 			}
 		})
 	}
+}
+
+function eolIn(doc: vscode.TextDocument): string {
+	switch (doc.eol) {
+		case vscode.EndOfLine.CRLF: return "\r\n"
+		case vscode.EndOfLine.LF: return "\n"
+	}
+	return "\n"
+}
+
+async function formatTable() {
+	const editor = vscode.window.activeTextEditor
+	if (!editor) {
+		return
+	}
+
+	const doc = editor.document
+	if (!isTask(doc)) {
+		return
+	}
+
+	const sel = doc.getText(editor.selection)
+	editor.edit(builder => {
+		builder.replace(editor.selection, bebras.check.formatTable(sel, eolIn(doc)))
+	})
 }
 
 function formatRelativePathFor(outFile: string, taskFile: string) {
