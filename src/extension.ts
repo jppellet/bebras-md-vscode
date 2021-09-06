@@ -194,7 +194,7 @@ export function activate(context: vscode.ExtensionContext) {
 	const validRolesStr = bebras.patterns.validRoles.join(",")
 
 	const authorCompletion = {
-		async provideCompletionItems(doc: vscode.TextDocument, pos: vscode.Position, cancel: vscode.CancellationToken, ctx: vscode.CompletionContext) {
+		async provideCompletionItems(doc: vscode.TextDocument, pos: vscode.Position, cancel: vscode.CancellationToken, ctx: vscode.CompletionContext): Promise<vscode.CompletionItem[]> {
 			if (!isTask(doc)) {
 				return []
 			}
@@ -206,12 +206,14 @@ export function activate(context: vscode.ExtensionContext) {
 				return []
 			}
 
-			const filter = match.groups?.filter?.toLowerCase()
+			// const filter = match.groups?.filter?.toLowerCase()
+			// console.log(`filter: '${filter}'`)
 
 			const authors = await getAuthorCompletions(path.dirname(path.dirname(doc.uri.fsPath)))
-			const completionAuthors = !filter
-				? authors
-				: authors.filter(auth => auth.toLowerCase().startsWith(filter))
+			// const completionAuthors = !filter
+			// 	? authors
+			// 	: authors.filter(auth => auth.toLowerCase().startsWith(filter))
+			const completionAuthors = authors
 
 			const completions = completionAuthors.map(authorString => {
 				const item = new vscode.CompletionItem(authorString)
@@ -219,6 +221,7 @@ export function activate(context: vscode.ExtensionContext) {
 				item.keepWhitespace = true
 				item.kind = vscode.CompletionItemKind.User
 				item.range = line.range
+				item.filterText = LinePrefix + authorString
 				return item
 			})
 
