@@ -243,10 +243,32 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.languages.registerHoverProvider(taskDocSelector, { provideHover }),
 	)
 
+	let lastActiveTaskEditor: vscode.TextEditor | undefined = undefined
+	for (const editor of vscode.window.visibleTextEditors) {
+		if (isTask(editor.document)) {
+			lastActiveTaskEditor = editor
+			break
+		}
+	}
+	// console.log(" =>> last active editor: " + lastActiveTaskEditor?.document.uri.fsPath)
+	vscode.window.onDidChangeActiveTextEditor(editor => {
+		if (editor && isTask(editor.document)) {
+			lastActiveTaskEditor = editor
+			// console.log(" =>> last active editor: " + editor.document.uri.fsPath)
+		}
+	})
+
 	return {
 		extendMarkdownIt(md: any) {
 			try {
-				md = md.use(bebras.markdownitPlugin.plugin)
+				md = md.use(bebras.markdownitPlugin.plugin(() => {
+					// console.log("Active: " + vscode.window.activeTextEditor?.document.uri.fsPath)
+					// console.log("Last:   " + lastActiveTaskEditor?.document.uri.fsPath)
+					const taskFile = (vscode.window.activeTextEditor ?? lastActiveTaskEditor)?.document.uri.fsPath ?? ""
+					const basePath = path.dirname(taskFile)
+					// console.log("++ basePath: " + basePath)
+					return basePath
+				}))
 			} catch (e) {
 				console.error(e)
 			}
