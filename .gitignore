@@ -4,3 +4,4 @@ node_modules
 .metals/
 *.vsix
 .DS_Store
+/HOWTO_jpp.md

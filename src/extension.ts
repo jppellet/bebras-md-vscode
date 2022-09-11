@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as bebras from 'bebras'
 import * as minimatch from "minimatch"
-import { mkStringCommaAnd } from 'bebras/out/util'
+import { isString, isUndefined, mkStringCommaAnd } from 'bebras/out/util'
 import { QuickFix } from 'bebras/out/check'
 
 // maps containing folder name to list of author completions
@@ -24,6 +24,48 @@ async function getAuthorCompletions(folderPath: string): Promise<string[]> {
 	}
 	AuthorCompletionCache.set(folderPath, completions)
 	return completions
+}
+
+let DiscordLinkCache = undefined as undefined | {
+	urlPattern: string,
+	serverId: string,
+	channelIds: Record<string, string>
+}
+
+export async function getDiscordLink(folderPath: string, taskId: string): Promise<string | undefined> {
+	if (isUndefined(DiscordLinkCache)) {
+		// load from file
+		const channelsFile = path.join(folderPath, "discord_channels.json")
+		if (!fs.existsSync(channelsFile)) {
+			console.log("missing file: ", channelsFile)
+			return undefined
+		}
+		const content = await fs.promises.readFile(channelsFile, "utf8")
+		const channelsData = JSON.parse(content)
+		let channelIds
+		if (!isString(channelsData.urlPattern) || !isString(channelsData.serverId) || ((channelIds = channelsData.channelIds) === null) || typeof channelIds !== "object") {
+			console.log("malformed JSON: ", channelsData)
+			console.log(!isString(channelsData.urlPattern))
+			console.log(!isString(channelsData.serverId))
+			console.log(channelsData.channelIds)
+			console.log(channelIds = channelsData.channelIds === null)
+			console.log(typeof channelIds !== "object")
+			return undefined
+		}
+
+		DiscordLinkCache = {
+			urlPattern: channelsData.urlPattern,
+			serverId: channelsData.serverId,
+			channelIds: channelIds,
+		}
+	}
+
+	const { urlPattern, serverId, channelIds } = DiscordLinkCache
+	const channelId = channelIds[taskId]
+	if (isUndefined(channelId)) {
+		return undefined
+	}
+	return urlPattern.replace("${serverId}", serverId).replace("${channelId}", channelId)
 }
 
 // Suppresses a pending lint for the specified document
@@ -191,8 +233,6 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	}
 
-	const validRolesStr = bebras.patterns.validRoles.join(",")
-
 	const authorCompletion = {
 		async provideCompletionItems(doc: vscode.TextDocument, pos: vscode.Position, cancel: vscode.CancellationToken, ctx: vscode.CompletionContext): Promise<vscode.CompletionItem[]> {
 			if (!isTask(doc)) {
@@ -209,7 +249,7 @@ export function activate(context: vscode.ExtensionContext) {
 			// const filter = match.groups?.filter?.toLowerCase()
 			// console.log(`filter: '${filter}'`)
 
-			const authors = await getAuthorCompletions(path.dirname(path.dirname(doc.uri.fsPath)))
+			const authors = await getAuthorCompletions(usualFolderWithAllTasksContaining(doc.uri.fsPath))
 			// const completionAuthors = !filter
 			// 	? authors
 			// 	: authors.filter(auth => auth.toLowerCase().startsWith(filter))
@@ -236,6 +276,7 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('bebrasmd.exportPdf', loggingErrors(makeExportHandler("pdf"))),
 		vscode.commands.registerCommand('bebrasmd.exportTex', loggingErrors(makeExportHandler("tex"))),
 		vscode.commands.registerCommand('bebrasmd.formatTable', loggingErrors(formatTable)),
+		vscode.commands.registerCommand('bebrasmd.openDiscord', loggingErrors(openDiscord)),
 		vscode.languages.registerCompletionItemProvider(taskDocSelector, authorCompletion),
 		vscode.languages.registerCodeActionsProvider(taskDocSelector, new BebrasQuickFixProvider(), {
 			providedCodeActionKinds: BebrasQuickFixProvider.providedCodeActionKinds,
@@ -278,6 +319,10 @@ export function activate(context: vscode.ExtensionContext) {
 
 }
 
+function usualFolderWithAllTasksContaining(taskPath: string) {
+	return path.dirname(path.dirname(taskPath))
+}
+
 // this method is called when your extension is deactivated
 export function deactivate() { }
 
@@ -298,7 +343,7 @@ export class BebrasQuickFixProvider implements vscode.CodeActionProvider {
 	}
 
 	private createCommandCodeActions(doc: vscode.TextDocument, diag: vscode.Diagnostic, range: vscode.Range | vscode.Selection): vscode.CodeAction[] {
-		console.log("diag", diag)
+		// console.log("diag", diag)
 		const quickFix: undefined | QuickFix = (diag as any).quickFix
 		if (!quickFix) {
 			return []
@@ -448,6 +493,36 @@ async function formatTable() {
 	editor.edit(builder => {
 		builder.replace(editor.selection, bebras.check.formatTable(sel, eolIn(doc)))
 	})
+}
+
+async function openDiscord() {
+	const editor = vscode.window.activeTextEditor
+	if (!editor) {
+		return
+	}
+
+	const doc = editor.document
+	if (!isTask(doc)) {
+		return
+	}
+
+
+	const taskPath = doc.uri.fsPath
+	const taskFileName = path.basename(taskPath)
+	let match
+	if (!(match = bebras.patterns.taskFileName.exec(taskFileName))) {
+		console.log("malformed file name: " + taskFileName)
+		return
+	}
+	const taskId = match.groups.id
+	const tasksFolder = usualFolderWithAllTasksContaining(taskPath)
+	const channelUrl = await getDiscordLink(tasksFolder, taskId)
+
+	if (isUndefined(channelUrl)) {
+		return
+	}
+
+	vscode.env.openExternal(vscode.Uri.parse(channelUrl))
 }
 
 function formatRelativePathFor(outFile: string, taskFile: string) {
