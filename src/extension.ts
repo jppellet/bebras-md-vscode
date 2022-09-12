@@ -400,9 +400,11 @@ function provideHover(doc: vscode.TextDocument, pos: vscode.Position, token: vsc
 		} else if (key === "title") {
 			return withStdPrefix(`is the localized, changeable title of the task as it will be exported for end-user output files.`)
 		} else if (key === "answer_type") {
-			return withStdPrefix(`says how this task will be answered by participants. It affects the expected contents of the *${bebras.patterns.markdownSectionNames[1]}* section.\n\nIt should be one of these values: ${mkStringCommaAnd(bebras.patterns.answerTypes.map(a => "`" + a + "`"), "or")}.`)
-		} else if (key === "categories") {
-			return withStdPrefix(`lists one or more categories under which this task should be classified. They are listed on an indented line with a hyphen.\n\nPossible categories are: ${mkStringCommaAnd(bebras.patterns.categories.map(a => "`" + a + "`"))}}.`)
+			return withStdPrefix(`says how this task will be answered by participants. It affects the expected contents of the *${bebras.patterns.markdownSectionNamesFor("latest")[1]}* section.\n\nIt should be one of these values: ${mkStringCommaAnd(bebras.patterns.answerTypesFor("latest").map(a => "`" + a + "`"), "or")}.`)
+		} else if (key === "computer_science_areas" || key === "categories") {
+			return withStdPrefix(`lists one or more computer science areas under which this task should be classified. They are listed on an indented line with a hyphen.\n\nPossible values are: ${mkStringCommaAnd(bebras.patterns.csAreas.map(a => "`" + a + "`"))}}.`)
+		} else if (key === "computational_thinking_skills") {
+			return withStdPrefix(`lists one or more computational thinking skills under which this task should be classified. They are listed on an indented line with a hyphen.\n\nPossible values are: ${mkStringCommaAnd(bebras.patterns.ctSkills.map(a => "`" + a + "`"))}}.`)
 		} else if (key === "contributors") {
 			return withStdPrefix(`lists, each on an indented line with hyphen, the list of contributors for this task.\n\nIn order to be parsed correctly, these lines should have the format:\n\n\`  - Name, email, country (role[s])\`\n\nWrite \`[no email]\` if the email address is not known.\n\nSeparate multiple roles with commas. Recoginzed roles are ${mkStringCommaAnd(bebras.patterns.validRoles.map(a => "`" + a + "`"))}. The role \`${bebras.patterns.roleTranslation}\` should specify *from* and *into* which language translation was gone, e.g.: \`${bebras.patterns.roleTranslation} from English into German\`.`)
 		} else if (key === "support_files") {
