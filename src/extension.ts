@@ -1,11 +1,10 @@
 import * as vscode from 'vscode'
 
-import * as path from 'path'
-import * as fs from 'fs'
 import * as bebras from 'bebras'
-import * as minimatch from "minimatch"
-import { isString, isUndefined, mkStringCommaAnd } from 'bebras/out/util'
 import { QuickFix } from 'bebras/out/check'
+import { isString, isUndefined, mkStringCommaAnd } from 'bebras/out/util'
+import * as fs from 'fs'
+import * as path from 'path'
 
 // maps containing folder name to list of author completions
 const AuthorCompletionCache = new Map<string, string[]>()
