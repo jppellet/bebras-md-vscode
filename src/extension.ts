@@ -1,7 +1,10 @@
+// Reference: https://code.visualstudio.com/api/references/vscode-api
+
 import * as vscode from 'vscode'
 
 import * as bebras from 'bebras'
 import { QuickFix } from 'bebras/out/check'
+import { PluginContext } from 'bebras/out/convert_html_markdownit'
 import { isString, isUndefined, mkStringCommaAnd } from 'bebras/out/util'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -87,20 +90,17 @@ function requestLint(document: vscode.TextDocument) {
 	}, throttleDuration)
 }
 
-function isMarkdown(doc: vscode.TextDocument) {
-	return doc.languageId === "markdown"
+function isTaskDocument(doc: vscode.TextDocument) {
+	return doc.languageId === "markdown" && doc.uri.fsPath.endsWith(bebras.patterns.taskFileExtension)
 }
 
 
 function getFilenameAndVersionForLinting(doc: vscode.TextDocument): undefined | { filePath: string, version: string } {
-	if (!isMarkdown(doc)) {
+	if (!isTaskDocument(doc)) {
 		return undefined
 	}
 
 	const filePath = doc.uri.fsPath
-	if (!filePath.endsWith(bebras.patterns.taskFileExtension)) {
-		return undefined
-	}
 
 	const prologueRange = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(2, 0))
 	const prologue = doc.getText(prologueRange)
@@ -173,16 +173,21 @@ function didChangeVisibleTextEditors(textEditors: vscode.TextEditor[]) {
 // Handles the onDidChangeTextDocument event
 function didChangeTextDocument(change: vscode.TextDocumentChangeEvent) {
 	const doc = change.document
-	if (isMarkdown(doc)) {
+	if (isTaskDocument(doc)) {
 		requestLint(doc)
 	}
 }
 
 // Handles the onDidSaveTextDocument event
 function didSaveTextDocument(doc: vscode.TextDocument) {
-	if (isMarkdown(doc)) {
+	if (isTaskDocument(doc)) {
 		lint(doc)
 		suppressLint(doc)
+
+		const autoExportLatex = vscode.workspace.getConfiguration("bebras").get("autoExportLatexOnSave", false as boolean)
+		if (autoExportLatex) {
+			vscode.commands.executeCommand("bebrasmd.exportTex", { neverOpenAfterExport: true })
+		}
 	}
 }
 
@@ -225,9 +230,9 @@ export function activate(context: vscode.ExtensionContext) {
 		requestLint(vscode.window.activeTextEditor.document)
 	}
 
-	function loggingErrors<T>(promiseFct: () => Promise<void>): () => Promise<void> {
-		return () => {
-			const p = promiseFct()
+	function loggingErrors<Args extends any[]>(promiseFct: (...args: Args) => Promise<void>): (...args: Args) => Promise<void> {
+		return (...args) => {
+			const p = promiseFct(...args)
 			return p.catch(err => console.log(err))
 		}
 	}
@@ -272,8 +277,10 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('bebrasmd.exportHtml', loggingErrors(makeExportHandler("html"))),
+		vscode.commands.registerCommand('bebrasmd.exportCuttleHtml', loggingErrors(makeExportHandler("cuttle"))),
 		vscode.commands.registerCommand('bebrasmd.exportPdf', loggingErrors(makeExportHandler("pdf"))),
 		vscode.commands.registerCommand('bebrasmd.exportTex', loggingErrors(makeExportHandler("tex"))),
+		vscode.commands.registerCommand('bebrasmd.exportTexAndOpen', loggingErrors(makeExportHandler("tex", true))),
 		vscode.commands.registerCommand('bebrasmd.formatTable', loggingErrors(formatTable)),
 		vscode.commands.registerCommand('bebrasmd.openDiscord', loggingErrors(openDiscord)),
 		vscode.languages.registerCompletionItemProvider(taskDocSelector, authorCompletion),
@@ -301,14 +308,17 @@ export function activate(context: vscode.ExtensionContext) {
 	return {
 		extendMarkdownIt(md: any) {
 			try {
+
 				md = md.use(bebras.markdownitPlugin.plugin(() => {
 					// console.log("Active: " + vscode.window.activeTextEditor?.document.uri.fsPath)
 					// console.log("Last:   " + lastActiveTaskEditor?.document.uri.fsPath)
 					const taskFile = (vscode.window.activeTextEditor ?? lastActiveTaskEditor)?.document.uri.fsPath ?? ""
 					const basePath = path.dirname(taskFile)
 					// console.log("++ basePath: " + basePath)
-					return basePath
+					const context: PluginContext = { taskFile, basePath, setOptionsFromMetadata: true }
+					return context
 				}))
+				md.set({ quotes: undefined })
 			} catch (e) {
 				console.error(e)
 			}
@@ -433,8 +443,8 @@ function isTask(doc: vscode.TextDocument): boolean {
 	return true
 }
 
-function makeExportHandler(outputFormat: bebras.util.OutputFormat) {
-	return async () => {
+function makeExportHandler(outputFormat: bebras.util.OutputFormat, forceOpenAfterExport: boolean = false) {
+	return async (options?: { neverOpenAfterExport: boolean }) => {
 		const editor = vscode.window.activeTextEditor
 		if (!editor) {
 			return
@@ -457,18 +467,94 @@ function makeExportHandler(outputFormat: bebras.util.OutputFormat) {
 		const outFile = outUri.fsPath
 		const conversionFct = (bebras as any)["convert_" + outputFormat]["convertTask_" + outputFormat]
 
+		const isTextFormat = outputFormat !== "pdf"
+
+		// check if we are allowed to open it
+		let openAfterExport: boolean
+		if (options?.neverOpenAfterExport) {
+			// command invoked with explicit option to never open
+			openAfterExport = false
+		} else if (forceOpenAfterExport) {
+			// callback created with option to always open
+			openAfterExport = true
+		} else {
+			// according to user settings
+			const autoOpenSetting = vscode.workspace.getConfiguration("bebras").get("autoOpenExportedFiles", "Never" as string)
+			switch (autoOpenSetting) {
+				case "Always":
+					openAfterExport = true
+					break
+				case "Only text files": {
+					openAfterExport = isTextFormat
+					break
+				}
+				case "Never":
+				default:
+					openAfterExport = false
+			}
+		}
+
 		vscode.window.withProgress({ location: vscode.ProgressLocation.Window }, async (progress) => {
 			progress.report({
 				message: `Converting task to ` + outputFormat,
 			})
 			try {
-				const writtenPath = await conversionFct(taskFile, outFile)
-				vscode.window.setStatusBarMessage("Wrote " + formatRelativePathFor(outFile, taskFile), 2000)
+				const writtenPath: string | true = await conversionFct(taskFile, outFile)
+				if (writtenPath === true) {
+					// written to stdout, shouldn't be the case from the plugin
+				} else {
+					vscode.window.setStatusBarMessage("Wrote " + formatRelativePathFor(outFile, taskFile), 2000)
+					if (openAfterExport) {
+						const outFileUri = vscode.Uri.file(writtenPath)
+
+						let openInternal: boolean
+						const openInternalSetting = String(vscode.workspace.getConfiguration("bebras").get("openExportedFilesInVSCode", "Only text files" as string))
+						switch (openInternalSetting) {
+							case "Never":
+							case "false": // old setting
+								openInternal = false
+								break
+							case "Always":
+							case "true": // old setting
+								openInternal = true
+								break
+							case "Only text files":
+							default: {
+								openInternal = isTextFormat
+							}
+						}
+
+
+						if (openInternal) {
+							focusEditorForOrOpenFile(outFileUri)
+						} else {
+							try {
+								await vscode.commands.executeCommand("openInExternalApp.open", outFileUri)
+							} catch (err) {
+								focusEditorForOrOpenFile(outFileUri)
+							}
+						}
+
+					}
+				}
 			} catch (err) {
 				console.error(err)
 			}
 		})
 	}
+}
+
+function focusEditorForOrOpenFile(uri: vscode.Uri) {
+	const wantedPath = uri.fsPath
+	// console.log("wantedPath: " + wantedPath)
+	for (const editor of vscode.window.visibleTextEditors) {
+		// console.log("editor:     " + editor.document.uri.fsPath)
+		if (editor.document.uri.fsPath === wantedPath) {
+			vscode.window.showTextDocument(editor.document)
+			return
+		}
+	}
+	vscode.commands.executeCommand("vscode.open", uri)
 }
 
 function eolIn(doc: vscode.TextDocument): string {

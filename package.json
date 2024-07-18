@@ -1,6 +1,6 @@
 {
 	"name": "bebras-vscode",
-	"version": "0.4.6",
+	"version": "0.5.0",
 	"displayName": "VS Code Support for Bebras Tasks",
 	"description": "Support for Bebras task edition in Markdown",
 	"publisher": "bebras-ch",
@@ -19,6 +19,39 @@
 	],
 	"main": "./out/extension.js",
 	"contributes": {
+		"configuration": {
+			"title": "Bebras",
+			"properties": {
+				"bebras.autoExportLatexOnSave": {
+					"title": "Auto-export LaTeX on save",
+					"type": "boolean",
+					"default": false,
+					"description": "Exports the LaTeX version of the tasks on each save."
+				},
+				"bebras.openExportedFilesInVSCode": {
+					"title": "Always use VS Code when opening exported files",
+					"type": "string",
+					"enum": [
+						"Never",
+						"Always",
+						"Only text files"
+					],
+					"default": "Only text files",
+					"description": "Use a builtin VS Code editor when opening exported files. Otherwise, uses the system-configured external app (this second behavior requires the “Open in External App” VS Code extension [YuTengjing.open-in-external-app])."
+				},
+				"bebras.autoOpenExportedFiles": {
+					"title": "Auto open exported files",
+					"type": "string",
+					"enum": [
+						"Never",
+						"Always",
+						"Only text files"
+					],
+					"default": "Always",
+					"description": "Automatically open the files exported with the Bebras export commands."
+				}
+			}
+		},
 		"markdown.markdownItPlugins": true,
 		"markdown.previewStyles": [
 			"./styles/bebrasmdstyle.css",
@@ -35,6 +68,15 @@
 				}
 			},
 			{
+				"command": "bebrasmd.exportCuttleHtml",
+				"category": "Bebras",
+				"title": "Export task to Cuttle HTML",
+				"icon": {
+					"light": "./images/save-html-cuttle-light.svg",
+					"dark": "./images/save-html-cuttle-dark.svg"
+				}
+			},
+			{
 				"command": "bebrasmd.exportPdf",
 				"category": "Bebras",
 				"title": "Export task to PDF (via HTML)",
@@ -47,6 +89,15 @@
 				"command": "bebrasmd.exportTex",
 				"category": "Bebras",
 				"title": "Export task to LaTeX",
+				"icon": {
+					"light": "./images/save-tex-light.svg",
+					"dark": "./images/save-tex-dark.svg"
+				}
+			},
+			{
+				"command": "bebrasmd.exportTexAndOpen",
+				"category": "Bebras",
+				"title": "Export task to LaTeX and open",
 				"icon": {
 					"light": "./images/save-tex-light.svg",
 					"dark": "./images/save-tex-dark.svg"
@@ -74,11 +125,19 @@
 					"when": "resourceScheme == file && resourceFilename =~ /.*\\.task\\.md$/"
 				},
 				{
+					"command": "bebrasmd.exportCuttleHtml",
+					"when": "resourceScheme == file && resourceFilename =~ /.*\\.task\\.md$/"
+				},
+				{
 					"command": "bebrasmd.exportPdf",
 					"when": "resourceScheme == file && resourceFilename =~ /.*\\.task\\.md$/"
 				},
 				{
 					"command": "bebrasmd.exportTex",
+					"when": "resourceScheme == file && resourceFilename =~ /.*\\.task\\.md$/"
+				},
+				{
+					"command": "bebrasmd.exportTexAndOpen",
 					"when": "resourceScheme == file && resourceFilename =~ /.*\\.task\\.md$/"
 				},
 				{
@@ -89,6 +148,11 @@
 			"editor/title": [
 				{
 					"command": "bebrasmd.exportHtml",
+					"when": "resourceScheme == file && resourceFilename =~ /.*\\.task\\.md$/",
+					"group": "navigation"
+				},
+				{
+					"command": "bebrasmd.exportCuttleHtml",
 					"when": "resourceScheme == file && resourceFilename =~ /.*\\.task\\.md$/",
 					"group": "navigation"
 				},
@@ -142,6 +206,6 @@
 		"mocha": "^9.0.3"
 	},
 	"dependencies": {
-		"bebras": "^0.4.6"
+		"bebras": "^0.5.0"
 	}
 }
