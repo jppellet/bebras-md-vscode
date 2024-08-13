@@ -403,7 +403,7 @@ function provideHover(doc: vscode.TextDocument, pos: vscode.Position, token: vsc
 		}
 		let ageCats
 		if (key === "id") {
-			return withStdPrefix(`is a string uniquely identifying the task, with the format \`YYYY-CC-NN\`. It should match the name of the task file.\n\nIt should follow this regex pattern:\n\n\`${bebras.patterns.id}\``)
+			return withStdPrefix(`is a string uniquely identifying the task, with the format \`YYYY-CC-NN[v]\`. It should match the name of the task file.\n\nIt should follow this regex pattern:\n\n\`${bebras.patterns.idWithOtherYear}\``)
 		} else if (key === "name") {
 			return withStdPrefix(`gives the original name of the task, non-localized. It is usually in English and should not really change over multiple revisions of the task. The localized title of the file should go into the **title** field.`)
 		} else if (key === "title") {
