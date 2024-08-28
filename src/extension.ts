@@ -128,8 +128,9 @@ async function lint(doc: vscode.TextDocument) {
 
 		const { filePath, version } = basicInfo
 		const text = doc.getText()
+		const strictChecks = vscode.workspace.getConfiguration("bebras").get("strictChecks", false as boolean)
 
-		const outputs = await bebras.check.check(text, filePath, version)
+		const outputs = await bebras.check.check(text, filePath, strictChecks, undefined, version)
 
 		for (const o of outputs) {
 			let sev: vscode.DiagnosticSeverity
@@ -401,7 +402,6 @@ function provideHover(doc: vscode.TextDocument, pos: vscode.Position, token: vsc
 		function withStdPrefix(end: string, keyOverride?: string) {
 			return `In the task metadata, the **${keyOverride ?? key}** field ` + end
 		}
-		let ageCats
 		if (key === "id") {
 			return withStdPrefix(`is a string uniquely identifying the task, with the format \`YYYY-CC-NN[v]\`. It should match the name of the task file.\n\nIt should follow this regex pattern:\n\n\`${bebras.patterns.idWithOtherYear}\``)
 		} else if (key === "name") {
@@ -411,7 +411,7 @@ function provideHover(doc: vscode.TextDocument, pos: vscode.Position, token: vsc
 		} else if (key === "answer_type") {
 			return withStdPrefix(`says how this task will be answered by participants. It affects the expected contents of the *${bebras.patterns.markdownSectionNamesFor("latest")[1]}* section.\n\nIt should be one of these values: ${mkStringCommaAnd(bebras.patterns.answerTypesFor("latest").map(a => "`" + a + "`"), "or")}.`)
 		} else if (key === "computer_science_areas" || key === "categories") {
-			return withStdPrefix(`lists one or more computer science areas under which this task should be classified. They are listed on an indented line with a hyphen.\n\nPossible values are: ${mkStringCommaAnd(bebras.patterns.csAreas.map(a => "`" + a + "`"))}}.`)
+			return withStdPrefix(`lists one or more categories under which this task should be classified. They are listed on an indented line with a hyphen.\n\nPossible values are: ${mkStringCommaAnd(bebras.patterns.categories.map(a => "`" + a.name + "`"))}}.`)
 		} else if (key === "computational_thinking_skills") {
 			return withStdPrefix(`lists one or more computational thinking skills under which this task should be classified. They are listed on an indented line with a hyphen.\n\nPossible values are: ${mkStringCommaAnd(bebras.patterns.ctSkills.map(a => "`" + a + "`"))}}.`)
 		} else if (key === "contributors") {

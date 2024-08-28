@@ -1,6 +1,6 @@
 {
 	"name": "bebras-vscode",
-	"version": "0.5.0",
+	"version": "0.5.1",
 	"displayName": "VS Code Support for Bebras Tasks",
 	"description": "Support for Bebras task edition in Markdown",
 	"publisher": "bebras-ch",
@@ -22,6 +22,12 @@
 		"configuration": {
 			"title": "Bebras",
 			"properties": {
+				"bebras.strictChecks": {
+					"title": "Strict checks (including metadata for bebras-web)",
+					"type": "boolean",
+					"default": false,
+					"description": "Also requires the presence of the metadata fields used by other external tools, like `summary` and `preview`."
+				},
 				"bebras.autoExportLatexOnSave": {
 					"title": "Auto-export LaTeX on save",
 					"type": "boolean",
