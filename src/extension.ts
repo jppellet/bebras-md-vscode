@@ -4,6 +4,7 @@ import * as vscode from 'vscode'
 
 import * as bebras from 'bebras'
 import { QuickFix } from 'bebras/out/check'
+import { PluginOptions } from 'bebras/out/convert_html'
 import { PluginContext } from 'bebras/out/convert_html_markdownit'
 import { isString, isUndefined, mkStringCommaAnd } from 'bebras/out/util'
 import * as fs from 'fs'
@@ -21,8 +22,11 @@ async function getAuthorCompletions(folderPath: string): Promise<string[]> {
 	const completionFile = path.join(folderPath, "authors_completion.txt")
 	completions = []
 	if (fs.existsSync(completionFile)) {
+		// console.log("loading completions from: ", completionFile)
 		const lines = await fs.promises.readFile(completionFile, "utf8")
 		completions = lines.split(/\r?\n/).filter(l => l.length > 0)
+	} else {
+		// console.log("missing file: ", completionFile)
 	}
 	AuthorCompletionCache.set(folderPath, completions)
 	return completions
@@ -240,7 +244,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const authorCompletion = {
 		async provideCompletionItems(doc: vscode.TextDocument, pos: vscode.Position, cancel: vscode.CancellationToken, ctx: vscode.CompletionContext): Promise<vscode.CompletionItem[]> {
+			// console.log("authorCompletion.provideCompletionItems")
 			if (!isTask(doc)) {
+				// console.log(" -> not a task")
 				return []
 			}
 
@@ -248,13 +254,17 @@ export function activate(context: vscode.ExtensionContext) {
 			const line = doc.lineAt(pos)
 			const match = /^\s*\-?\s*(?<filter>.*?)(?:\s+\(.*)?$/.exec(line.text)
 			if (!match) {
+				// console.log(" -> no match")
 				return []
 			}
 
 			// const filter = match.groups?.filter?.toLowerCase()
 			// console.log(`filter: '${filter}'`)
 
-			const authors = await getAuthorCompletions(usualFolderWithAllTasksContaining(doc.uri.fsPath))
+			const folderPath = usualFolderWithAllTasksContaining(doc.uri.fsPath)
+			// console.log("folderPath: ", folderPath)
+			const authors = await getAuthorCompletions(folderPath)
+			// console.log("authors: ", authors)
 			// const completionAuthors = !filter
 			// 	? authors
 			// 	: authors.filter(auth => auth.toLowerCase().startsWith(filter))
@@ -499,7 +509,17 @@ function makeExportHandler(outputFormat: bebras.util.OutputFormat, forceOpenAfte
 				message: `Converting task to ` + outputFormat,
 			})
 			try {
-				const writtenPath: string | true = await conversionFct(taskFile, outFile)
+				const customOptions: Partial<PluginOptions> = {}
+
+				const customQuotes = vscode.workspace.getConfiguration("bebras").get("customQuotes", "")
+				if (customQuotes.length > 0) {
+					const customQuotesArr = bebras.convert_html.parseQuotes(customQuotes)
+					if (customQuotesArr !== undefined) {
+						customOptions.customQuotes = customQuotesArr
+					}
+				}
+
+				const writtenPath: string | true = await conversionFct(taskFile, outFile, customOptions)
 				if (writtenPath === true) {
 					// written to stdout, shouldn't be the case from the plugin
 				} else {
