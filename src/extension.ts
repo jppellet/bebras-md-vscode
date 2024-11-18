@@ -329,7 +329,7 @@ export function activate(context: vscode.ExtensionContext) {
 					const context: PluginContext = { taskFile, basePath, setOptionsFromMetadata: true }
 					return context
 				}))
-				md.set({ quotes: undefined })
+				md.set({ quotes: getConfigCustomQuotes() })
 			} catch (e) {
 				console.error(e)
 			}
@@ -453,6 +453,14 @@ function isTask(doc: vscode.TextDocument): boolean {
 	return true
 }
 
+function getConfigCustomQuotes(): [string, string] | [string, string, string, string] | undefined {
+	const customQuotes = vscode.workspace.getConfiguration("bebras").get("customQuotes", "")
+	if (customQuotes.length > 0) {
+		return bebras.convert_html.parseQuotes(customQuotes)
+	}
+	return undefined
+}
+
 function makeExportHandler(outputFormat: bebras.util.OutputFormat, forceOpenAfterExport: boolean = false) {
 	return async (options?: { neverOpenAfterExport: boolean }) => {
 		const editor = vscode.window.activeTextEditor
@@ -511,12 +519,9 @@ function makeExportHandler(outputFormat: bebras.util.OutputFormat, forceOpenAfte
 			try {
 				const customOptions: Partial<PluginOptions> = {}
 
-				const customQuotes = vscode.workspace.getConfiguration("bebras").get("customQuotes", "")
-				if (customQuotes.length > 0) {
-					const customQuotesArr = bebras.convert_html.parseQuotes(customQuotes)
-					if (customQuotesArr !== undefined) {
-						customOptions.customQuotes = customQuotesArr
-					}
+				const customQuotes = getConfigCustomQuotes()
+				if (customQuotes !== undefined) {
+					customOptions.customQuotes = customQuotes
 				}
 
 				const writtenPath: string | true = await conversionFct(taskFile, outFile, customOptions)
@@ -596,9 +601,29 @@ async function formatTable() {
 		return
 	}
 
-	const sel = doc.getText(editor.selection)
+	const selection = editor.selection
+	// expand to the whole table
+	function looksLikeTableLine(line: vscode.TextLine): boolean {
+		return line.text.includes("|")
+	}
+	let startLine = selection.start.line
+	if (!looksLikeTableLine(doc.lineAt(selection.start.line))) {
+		return
+	}
+	while (startLine > 0 && looksLikeTableLine(doc.lineAt(startLine - 1))) {
+		startLine--
+	}
+	let endLine = selection.end.line
+	while (endLine < doc.lineCount - 1 && looksLikeTableLine(doc.lineAt(endLine + 1))) {
+		endLine++
+	}
+	const range = new vscode.Range(new vscode.Position(startLine, 0), new vscode.Position(endLine + 1, 0))
+	const tableText = doc.getText(range)
 	editor.edit(builder => {
-		builder.replace(editor.selection, bebras.check.formatTable(sel, eolIn(doc)))
+		const newText = bebras.check.formatTable(tableText, eolIn(doc))
+		builder.replace(range, newText)
+		const numNewLines = newText.split(/\r?\n/).length
+		editor.selection = new vscode.Selection(range.start, new vscode.Position(range.start.line + numNewLines - 1, 0))
 	})
 }
 
