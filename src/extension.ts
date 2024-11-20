@@ -6,6 +6,7 @@ import * as bebras from 'bebras'
 import { QuickFix } from 'bebras/out/check'
 import { PluginOptions } from 'bebras/out/convert_html'
 import { PluginContext } from 'bebras/out/convert_html_markdownit'
+import { tableHeaderOrSepPattern } from 'bebras/out/patterns'
 import { isString, isUndefined, mkStringCommaAnd } from 'bebras/out/util'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -602,10 +603,21 @@ async function formatTable() {
 	}
 
 	const selection = editor.selection
+
 	// expand to the whole table
 	function looksLikeTableLine(line: vscode.TextLine): boolean {
-		return line.text.includes("|")
+		if (line.text.includes("|")) {
+			return true
+		}
+		if (line.text.includes("‖")) {
+			return true
+		}
+		if (tableHeaderOrSepPattern.test(line.text)) {
+			return true
+		}
+		return false
 	}
+
 	let startLine = selection.start.line
 	if (!looksLikeTableLine(doc.lineAt(selection.start.line))) {
 		return
